@@ -8,34 +8,47 @@ const script = scriptMatch[1];
 const lines = script.split("\n");
 console.log("Script has", lines.length, "lines");
 
-// Find lines with label-like syntax (word: at start of statement)
-const suspect = [];
-for (let i = 0; i < lines.length; i++) {
-  const trimmed = lines[i].trim();
-  // Skip case/default/labels in switch
-  if (trimmed.startsWith("case ") || trimmed.startsWith("default:")) continue;
-  // Skip property access (obj.prop:)
-  // Skip ternary (cond ? :)
-  // Look for bare word: at statement start
-  if (/^[a-zA-Z_$][a-zA-Z0-9_$]*\s*:/.test(trimmed)) {
-    // Check it's not inside an object literal (line starts with { or ,)
-    const prev = i > 0 ? lines[i-1].trim() : "";
-    if (!prev.endsWith("{") && !prev.endsWith(",") && !trimmed.startsWith("{")) {
-      suspect.push({ line: i+1, content: lines[i] });
+// Try to parse the full script
+try {
+  new Function(script);
+  console.log("Full script parses OK");
+} catch(e) {
+  console.log("Full script parse error:", e.message);
+}
+
+// Try progressively larger chunks to find where it breaks
+// Start from the end and work backwards, or use a binary approach
+let lastGood = 0;
+for (let i = 10; i <= lines.length; i += 10) {
+  // Wrap in a try-catch to handle incomplete blocks
+  const chunk = "(function() {\n" + lines.slice(0, i).join("\n") + "\n})();";
+  try {
+    // eslint-disable-next-line no-new-func
+    new Function(chunk);
+    lastGood = i;
+  } catch(e) {
+    // Failed - narrow down
+    for (let j = lastGood + 1; j <= i; j++) {
+      const subchunk = "(function() {\n" + lines.slice(0, j).join("\n") + "\n})();";
+      try {
+        new Function(subchunk);
+        lastGood = j;
+      } catch(e2) {
+        console.log("\nFirst unparseable line:", j, ":", lines[j-1].substring(0, 120));
+        console.log("Context (5 lines around):");
+        for (let k = Math.max(0, j-3); k < Math.min(lines.length, j+2); k++) {
+          const marker = k === j-1 ? ">>>" : "   ";
+          console.log(marker, (k+1) + ":", lines[k].substring(0, 120));
+        }
+        // Don't break - show all issues
+        break;
+      }
     }
+    // Continue scanning
   }
 }
 
-console.log("\nLabel-like lines (potential SyntaxError sources):");
-suspect.forEach(l => console.log("  L" + l.line + ":", l.content.substring(0, 120)));
-
-// Also check for ${} sequences that survived compilation
-const interp = script.match(/\$\{[^}]+\}/g);
-if (interp) {
-  console.log("\n${} sequences found in script:");
-  interp.forEach(s => console.log("  ", s));
-}
-
-// Check for stray backticks
-const backticks = (script.match(/`/g) || []).length;
-console.log("\nBackticks in script:", backticks);
+// Also dump the full HTML to inspect
+fs.writeFileSync("/tmp/animus-webview.html", html);
+console.log("\nFull HTML written to /tmp/animus-webview.html");
+console.log("HTML lines:", html.split("\n").length);
