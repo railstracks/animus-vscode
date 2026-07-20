@@ -785,6 +785,7 @@ function getHtml(): string {
     // ---- Message handler from extension ----
     window.addEventListener('message', (event) => {
       const msg = event.data;
+      dbg('recv:' + msg.type);
 
       switch (msg.type) {
         case 'init':
@@ -905,6 +906,14 @@ function getHtml(): string {
 
     // Notify extension that view is ready
     vscode.postMessage({ type: 'view_ready' });
+
+    // Debug: surface diagnostics in the UI temporarily
+    window.__animusDebug = { viewReadySent: Date.now(), initReceived: false, events: [] };
+    const origHandler = window.addEventListener;
+    const debugEl = document.createElement('div');
+    debugEl.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#2d2d30;color:#888;font-size:10px;font-family:monospace;padding:4px 8px;max-height:100px;overflow-y:auto;z-index:9999;pointer-events:none;';
+    document.body.appendChild(debugEl);
+    function dbg(msg) { debugEl.textContent += msg + ' | '; }
   </script>
 </body>
 </html>`;
