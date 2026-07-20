@@ -1,0 +1,136 @@
+{
+  "name": "animus",
+  "displayName": "Animus",
+  "description": "Persistent AI agents in your IDE — powered by Animus",
+  "version": "0.1.0",
+  "publisher": "artificers",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/railstracks/animus-vscode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["AI", "Chat", "Other"],
+  "keywords": ["ai", "agent", "llm", "assistant", "animus"],
+  "icon": "media/icon.png",
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onView:animus-sessions"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "animus",
+          "title": "Animus",
+          "icon": "media/sidebar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "animus": [
+        {
+          "id": "animus-sessions",
+          "name": "Sessions"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "animus.connect",
+        "title": "Animus: Connect",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "animus.disconnect",
+        "title": "Animus: Disconnect",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "animus.refreshSessions",
+        "title": "Animus: Refresh Sessions",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "animus.newSession",
+        "title": "Animus: New Session",
+        "icon": "$(add)"
+      },
+      {
+        "command": "animus.openChat",
+        "title": "Animus: Open Chat",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "animus.selectAgent",
+        "title": "Animus: Select Agent",
+        "icon": "$(symbol-color)"
+      },
+      {
+        "command": "animus.configureConnection",
+        "title": "Animus: Configure Connection",
+        "icon": "$(settings-gear)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "animus.newSession",
+          "when": "view == animus-sessions",
+          "group": "navigation"
+        },
+        {
+          "command": "animus.refreshSessions",
+          "when": "view == animus-sessions",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "animus.openChat",
+          "when": "view == animus-sessions && viewItem == session",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Animus",
+      "properties": {
+        "animus.daemonUrl": {
+          "type": "string",
+          "default": "http://localhost:8080",
+          "description": "URL of the Animus daemon"
+        },
+        "animus.authToken": {
+          "type": "string",
+          "default": "",
+          "description": "Admin auth token for the Animus daemon",
+          "scope": "machine"
+        },
+        "animus.agentId": {
+          "type": "string",
+          "default": "",
+          "description": "Default agent ID to use for new sessions"
+        },
+        "animus.node": {
+          "type": "string",
+          "default": "",
+          "description": "Node name for workspace tool routing (e.g. 'workstation')"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}
