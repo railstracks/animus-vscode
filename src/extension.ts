@@ -137,23 +137,20 @@ async function newSession(): Promise<void> {
     return;
   }
 
-  try {
-    const config = getConfig();
-    const result = await client.createSession(config.agentId || undefined);
-    const sessionId = result.session_id;
+  // Prompt for an initial message — the server creates a session implicitly
+  const content = await vscode.window.showInputBox({
+    prompt: 'Initial message for new session',
+    placeHolder: 'Type a message to start a new conversation...',
+  });
+  if (!content) return;
 
-    await refreshSessions();
+  const config = getConfig();
+  const extensionUri = extContext.extensionUri;
 
-    // Open chat for the new session
-    const extensionUri = extContext.extensionUri;
-    if (extensionUri) {
-      ChatPanel.createOrShow(extensionUri, client, sessionId, 'New Session');
-    }
-  } catch (e) {
-    vscode.window.showErrorMessage(
-      `Animus: Failed to create session — ${(e as Error).message}`
-    );
-  }
+  // Open a chat panel with a temporary ID — the WS context event will update it
+  const tempId = 'pending-' + Date.now();
+  const panel = ChatPanel.createOrShow(extensionUri, client, tempId, 'New Session');
+  panel.sendNewSessionMessage(content, config.agentId || undefined);
 }
 
 async function openChat(item: any): Promise<void> {

@@ -124,26 +124,43 @@ export class AnimusClient {
   }
 
   /**
-   * Send a user message to a session.
+   * Send a user message to a session via the WebSocket.
+   * The Animus WS protocol uses type: "message" (not "user_message").
    */
   sendUserMessage(sessionId: string, content: string, agentId?: string): void {
     this.sendWsMessage({
-      type: 'user_message',
+      type: 'message',
       session_id: sessionId,
       content,
       ...(agentId ? { agent_id: agentId } : {}),
-      ...(this.config.node ? { node: this.config.node } : {}),
     });
   }
 
   /**
-   * Create a new session.
+   * Create a new session by sending a first message without a session_id.
+   * The Animus WS protocol creates a session implicitly when no session_id is provided.
+   * The server responds with a `context` event containing the new session_id.
    */
-  async createSession(agentId?: string): Promise<{ session_id: string }> {
-    return this.request<{ session_id: string }>('POST', '/api/v1/sessions', {
-      agent_id: agentId ?? this.config.agentId,
-      ...(this.config.node ? { node: this.config.node } : {}),
+  sendNewSessionMessage(content: string, agentId?: string): void {
+    this.sendWsMessage({
+      type: 'message',
+      content,
+      ...(agentId ? { agent_id: agentId } : {}),
     });
+  }
+
+  /**
+   * Request session list via the WebSocket.
+   */
+  requestSessionList(): void {
+    this.sendWsMessage({ type: 'list_sessions' });
+  }
+
+  /**
+   * Stop active generation.
+   */
+  stopGeneration(): void {
+    this.sendWsMessage({ type: 'stop' });
   }
 
   disconnect(): void {

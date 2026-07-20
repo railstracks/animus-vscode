@@ -87,6 +87,21 @@ export class ChatPanel {
     this.loadHistory();
   }
 
+  public sendNewSessionMessage(content: string, agentId?: string): void {
+    // Add user message locally
+    const userMsg: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content,
+      timestamp: Date.now(),
+      streaming: false,
+    };
+    this.messages.push(userMsg);
+    this.postMessage({ type: 'user_message', message: userMsg });
+    // Send without session_id — server creates a new session
+    this.client.sendNewSessionMessage(content, agentId);
+  }
+
   private connectWs(): void {
     this.client.connectWebSocket({
       onOpen: () => {
@@ -179,7 +194,13 @@ export class ChatPanel {
   private handleWsEvent(data: any): void {
     const type = data.type;
 
-    if (type === 'text') {
+    if (type === 'context') {
+      // Server sends context event when a session is bound (including new sessions)
+      if (data.session_id) {
+        this.sessionId = data.session_id;
+      }
+      // Context layers may follow but we don't need to render them
+    } else if (type === 'text') {
       this.postMessage({ type: 'stream_text', content: data.content });
     } else if (type === 'thinking') {
       this.postMessage({ type: 'stream_thinking', content: data.content });
@@ -205,8 +226,11 @@ export class ChatPanel {
       });
     } else if (type === 'done') {
       this.postMessage({ type: 'stream_done', interrupted: data.interrupted });
-    } else if (type === 'token') {
-      this.postMessage({ type: 'session_bound', session_id: data.session_id });
+    } else if (type === 'error') {
+      this.postMessage({ type: 'ws_error', message: data.message || 'Unknown server error' });
+    } else if (type === 'sessions') {
+      // Response to list_sessions request
+      this.postMessage({ type: 'sessions_list', sessions: data.sessions });
     }
   }
 
@@ -222,7 +246,12 @@ export class ChatPanel {
       };
       this.messages.push(userMsg);
       this.postMessage({ type: 'user_message', message: userMsg });
-      this.client.sendUserMessage(this.sessionId, message.content);
+      // If session is still pending, send without session_id to create one
+      if (this.sessionId.startsWith('pending-')) {
+        this.client.sendNewSessionMessage(message.content);
+      } else {
+        this.client.sendUserMessage(this.sessionId, message.content);
+      }
     }
   }
 
@@ -273,14 +302,44 @@ export class ChatPanel {
       font-family: var(--vscode-editor-font-family, monospace);
       font-size: 0.85em;
       background: var(--vscode-textCodeBlock-background, #2d2d30);
-      padding: 6px 10px;
+      padding: 0;
       border-radius: 4px;
       border-left: 3px solid var(--vscode-textLink-foreground, #3794ff);
+      overflow: hidden;
     }
     .message .role-label {
       font-size: 0.75em;
       opacity: 0.6;
       margin-bottom: 4px;
+    }
+    .collapsible-header {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      padding: 6px 10px;
+      user-select: none;
+      font-size: 0.85em;
+      opacity: 0.8;
+    }
+    .collapsible-header:hover {
+      opacity: 1;
+    }
+    .collapsible-header .chevron {
+      transition: transform 0.15s;
+      font-size: 0.7em;
+    }
+    .collapsible-header.collapsed .chevron {
+      transform: rotate(-90deg);
+    }
+    .collapsible-content {
+      padding: 6px 10px;
+      border-top: 1px solid var(--vscode-panel-border, #3c3c3c);
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .collapsible-content.collapsed {
+      display: none;
     }
     .message .thinking {
       font-size: 0.85em;
@@ -402,25 +461,49 @@ export class ChatPanel {
       el.className = 'message ' + msg.role;
       el.id = msg.id;
 
-      const roleLabel = document.createElement('div');
-      roleLabel.className = 'role-label';
-      roleLabel.textContent = msg.role === 'tool_call'
-        ? '🔧 ' + (msg.toolName || 'tool')
-        : msg.role === 'tool'
-          ? '📋 ' + (msg.toolName || 'result')
-          : msg.role;
-      el.appendChild(roleLabel);
+      const isTool = msg.role === 'tool_call' || msg.role === 'tool';
 
-      const contentEl = document.createElement('div');
-      contentEl.className = 'content';
-      contentEl.textContent = msg.content;
-      el.appendChild(contentEl);
+      if (isTool) {
+        // Collapsible tool block
+        const header = document.createElement('div');
+        header.className = 'collapsible-header';
+        const chevron = document.createElement('span');
+        chevron.className = 'chevron';
+        chevron.textContent = '▼';
+        const label = document.createElement('span');
+        label.textContent = msg.role === 'tool_call'
+          ? '🔧 ' + (msg.toolName || 'tool')
+          : '📋 ' + (msg.toolName || 'result');
+        header.appendChild(chevron);
+        header.appendChild(label);
+        el.appendChild(header);
 
-      if (msg.thinking) {
-        const thinkEl = document.createElement('div');
-        thinkEl.className = 'thinking';
-        thinkEl.textContent = msg.thinking;
-        el.appendChild(thinkEl);
+        const contentEl = document.createElement('div');
+        contentEl.className = 'collapsible-content';
+        contentEl.textContent = msg.content;
+        el.appendChild(contentEl);
+
+        header.addEventListener('click', () => {
+          header.classList.toggle('collapsed');
+          contentEl.classList.toggle('collapsed');
+        });
+      } else {
+        const roleLabel = document.createElement('div');
+        roleLabel.className = 'role-label';
+        roleLabel.textContent = msg.role;
+        el.appendChild(roleLabel);
+
+        const contentEl = document.createElement('div');
+        contentEl.className = 'content';
+        contentEl.textContent = msg.content;
+        el.appendChild(contentEl);
+
+        if (msg.thinking) {
+          const thinkEl = document.createElement('div');
+          thinkEl.className = 'thinking';
+          thinkEl.textContent = msg.thinking;
+          el.appendChild(thinkEl);
+        }
       }
 
       if (msg.attachments) {
