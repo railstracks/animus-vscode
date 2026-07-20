@@ -4,9 +4,17 @@ export interface Agent {
   id: string;
   name: string;
   description: string;
-  provider_id: string;
-  model: string;
+  model: {
+    provider?: string;
+    model_id?: string;
+  };
   avatar?: string;
+}
+
+export interface Provider {
+  provider_id: string;
+  provider_type: string;
+  default_model: string;
 }
 
 export interface SessionSummary {

@@ -32,8 +32,9 @@
     "views": {
       "animus": [
         {
+          "type": "webview",
           "id": "animus-sessions",
-          "name": "Sessions"
+          "name": "Animus"
         }
       ]
     },
@@ -49,51 +50,13 @@
         "icon": "$(debug-disconnect)"
       },
       {
-        "command": "animus.refreshSessions",
-        "title": "Animus: Refresh Sessions",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "animus.newSession",
-        "title": "Animus: New Session",
-        "icon": "$(add)"
-      },
-      {
-        "command": "animus.openChat",
-        "title": "Animus: Open Chat",
-        "icon": "$(comment-discussion)"
-      },
-      {
-        "command": "animus.selectAgent",
-        "title": "Animus: Select Agent",
-        "icon": "$(symbol-color)"
-      },
-      {
         "command": "animus.configureConnection",
         "title": "Animus: Configure Connection",
         "icon": "$(settings-gear)"
       }
     ],
     "menus": {
-      "view/title": [
-        {
-          "command": "animus.newSession",
-          "when": "view == animus-sessions",
-          "group": "navigation"
-        },
-        {
-          "command": "animus.refreshSessions",
-          "when": "view == animus-sessions",
-          "group": "navigation"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "animus.openChat",
-          "when": "view == animus-sessions && viewItem == session",
-          "group": "inline"
-        }
-      ]
+      "view/title": []
     },
     "configuration": {
       "title": "Animus",

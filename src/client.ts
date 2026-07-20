@@ -1,7 +1,7 @@
 // client.ts — Animus daemon HTTP + WebSocket client
 
 import WebSocket from 'ws';
-import type { Agent, SessionSummary, SessionTurn, ConnectionConfig } from './types';
+import type { Agent, SessionSummary, SessionTurn, ConnectionConfig, Provider } from './types';
 
 export class AnimusClient {
   private config: ConnectionConfig;
@@ -53,6 +53,18 @@ export class AnimusClient {
   async listAgents(): Promise<Agent[]> {
     const data = await this.request<{ agents: Agent[] }>('GET', '/api/v1/agents');
     return data.agents ?? [];
+  }
+
+  // ---- Providers ----
+
+  async listProviders(): Promise<{ default: string; providers: Provider[] }> {
+    const data = await this.request<{ default_provider: string; providers: Provider[] }>('GET', '/api/v1/providers');
+    return { default: data.default_provider ?? '', providers: data.providers ?? [] };
+  }
+
+  async listProviderModels(providerId: string): Promise<string[]> {
+    const data = await this.request<{ models: string[] }>('GET', `/api/v1/providers/${providerId}/models`);
+    return data.models ?? [];
   }
 
   // ---- Sessions ----
