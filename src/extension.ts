@@ -95,6 +95,7 @@ async function connect(): Promise<void> {
     vscode.window.showInformationMessage(
       `Animus: Connected (${agents.length} agent${agents.length !== 1 ? 's' : ''})`
     );
+    pushDataToView();
   } catch (e) {
     updateStatusBar('disconnected');
     client = null;
@@ -326,14 +327,17 @@ function getHtml(): string {
       padding: 4px 12px 8px;
       display: flex;
       flex-direction: column;
-      gap: 6px;
-    }
-    .form-row {
-      display: flex;
       gap: 4px;
     }
-    .form-row select {
-      flex: 1;
+    .field-label {
+      font-size: 0.7em;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      opacity: 0.5;
+      margin-top: 4px;
+    }
+    .field-label:first-child { margin-top: 0; }
+    select {
       background: var(--vscode-dropdown-background, #3c3c3c);
       color: var(--vscode-dropdown-foreground, #d4d4d4);
       border: 1px solid var(--vscode-dropdown-border, #3c3c3c);
@@ -342,8 +346,9 @@ function getHtml(): string {
       font-family: inherit;
       font-size: 0.85em;
       outline: none;
+      width: 100%;
     }
-    .form-row select:focus {
+    select:focus {
       border-color: var(--vscode-focusBorder, #007fd4);
     }
     #message-input {
@@ -548,13 +553,12 @@ function getHtml(): string {
   <div id="main-view">
     <div class="section-label">New Session</div>
     <div id="new-session-form">
-      <div class="form-row">
-        <select id="agent-select"><option value="">Default Agent</option></select>
-      </div>
-      <div class="form-row">
-        <select id="provider-select"><option value="">Provider</option></select>
-        <select id="model-select"><option value="">Model</option></select>
-      </div>
+      <label class="field-label" for="agent-select">Agent</label>
+      <select id="agent-select"></select>
+      <label class="field-label" for="provider-select">Provider</label>
+      <select id="provider-select"></select>
+      <label class="field-label" for="model-select">Model</label>
+      <select id="model-select"></select>
       <textarea id="message-input" placeholder="Start a new conversation..." rows="3"></textarea>
       <button id="send-btn">Send</button>
     </div>
@@ -628,7 +632,7 @@ function getHtml(): string {
     // ---- Provider/model cascading ----
     providerSelect.addEventListener('change', () => {
       const pid = providerSelect.value;
-      modelSelect.innerHTML = '<option value="">Model</option>';
+      modelSelect.innerHTML = '';
       if (!pid) return;
       if (modelsCache[pid]) {
         populateModels(modelsCache[pid]);
@@ -639,7 +643,7 @@ function getHtml(): string {
 
     function populateModels(models) {
       const current = modelSelect.value;
-      modelSelect.innerHTML = '<option value="">Model</option>';
+      modelSelect.innerHTML = '';
       for (const m of models) {
         const opt = document.createElement('option');
         opt.value = m; opt.textContent = m;
@@ -777,7 +781,7 @@ function getHtml(): string {
       switch (msg.type) {
         case 'init':
           // Populate agents
-          agentSelect.innerHTML = '<option value="">Default Agent</option>';
+          agentSelect.innerHTML = '';
           for (const a of (msg.agents || [])) {
             const opt = document.createElement('option');
             opt.value = a.id;
@@ -785,7 +789,7 @@ function getHtml(): string {
             agentSelect.appendChild(opt);
           }
           // Populate providers
-          providerSelect.innerHTML = '<option value="">Provider</option>';
+          providerSelect.innerHTML = '';
           for (const p of (msg.providers || [])) {
             const opt = document.createElement('option');
             opt.value = p.provider_id;
@@ -793,6 +797,12 @@ function getHtml(): string {
             providerSelect.appendChild(opt);
           }
           if (msg.defaultProvider) providerSelect.value = msg.defaultProvider;
+          // Clear model select until provider is picked
+          modelSelect.innerHTML = '';
+          // Auto-load models for default provider
+          if (providerSelect.value) {
+            vscode.postMessage({ type: 'load_models', providerId: providerSelect.value });
+          }
           break;
 
         case 'sessions':
