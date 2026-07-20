@@ -142,12 +142,19 @@ async function refreshSessions(): Promise<void> {
 }
 
 function pushDataToView(): void {
-  postToView({
+  const payload = {
     type: 'init',
     agents: cachedAgents,
     providers: cachedProviders,
     defaultProvider: cachedDefaultProvider,
+  };
+  console.log('[Animus] pushDataToView:', {
+    viewExists: !!view,
+    agents: cachedAgents.length,
+    providers: cachedProviders.length,
+    defaultProvider: cachedDefaultProvider,
   });
+  postToView(payload);
 }
 
 async function loadProviderModels(providerId: string): Promise<void> {
@@ -202,6 +209,7 @@ function connectWs(): void {
 async function handleWebviewMessage(msg: any): Promise<void> {
   switch (msg.type) {
     case 'view_ready':
+      console.log('[Animus] view_ready received, client:', !!client, 'agents:', cachedAgents.length);
       if (client) {
         pushDataToView();
         connectWs();
@@ -780,9 +788,11 @@ function getHtml(): string {
 
       switch (msg.type) {
         case 'init':
+          console.log('[Animus] init received:', { agents: (msg.agents||[]).length, providers: (msg.providers||[]).length, defaultProvider: msg.defaultProvider });
           // Populate agents
           agentSelect.innerHTML = '';
           for (const a of (msg.agents || [])) {
+            console.log('[Animus] agent:', JSON.stringify(a));
             const opt = document.createElement('option');
             opt.value = a.id;
             opt.textContent = a.name || a.id;
