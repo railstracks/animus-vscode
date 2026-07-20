@@ -6,6 +6,8 @@ import type { Agent, SessionSummary, SessionTurn, ConnectionConfig } from './typ
 export class AnimusClient {
   private config: ConnectionConfig;
   private ws: WebSocket | null = null;
+  private wsQueue: string[] = [];
+  private wsOpenPromise: Promise<void> | null = null;
 
   constructor(config: ConnectionConfig) {
     this.config = config;
@@ -90,8 +92,17 @@ export class AnimusClient {
 
     this.ws = new WebSocket(wsUrl, { headers });
 
-    this.ws.on('open', () => {
-      handlers.onOpen?.();
+    // Create a promise that resolves when WS is open
+    this.wsOpenPromise = new Promise<void>((resolve) => {
+      this.ws!.on('open', () => {
+        // Flush queued messages
+        for (const queued of this.wsQueue) {
+          this.ws!.send(queued);
+        }
+        this.wsQueue = [];
+        handlers.onOpen?.();
+        resolve();
+      });
     });
 
     this.ws.on('message', (raw: WebSocket.RawData) => {
@@ -108,6 +119,8 @@ export class AnimusClient {
     });
 
     this.ws.on('error', (err: Error) => {
+      // Clear queue on connection error — these messages won't be delivered
+      this.wsQueue = [];
       handlers.onError?.(err);
     });
 
@@ -116,11 +129,24 @@ export class AnimusClient {
 
   /**
    * Send a message to a session via the WebSocket.
+   * If the WS isn't open yet, queues the message for when it opens.
    */
   sendWsMessage(msg: Record<string, unknown>): void {
+    const data = JSON.stringify(msg);
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(msg));
+      this.ws.send(data);
+    } else {
+      // Queue until WS opens
+      this.wsQueue.push(data);
     }
+  }
+
+  /**
+   * Wait for the WebSocket to be open.
+   */
+  async waitForOpen(): Promise<void> {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+    if (this.wsOpenPromise) await this.wsOpenPromise;
   }
 
   /**
@@ -168,5 +194,7 @@ export class AnimusClient {
       this.ws.close();
       this.ws = null;
     }
+    this.wsQueue = [];
+    this.wsOpenPromise = null;
   }
 }
