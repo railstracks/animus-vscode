@@ -213,10 +213,11 @@ async function handleWebviewMessage(msg: any): Promise<void> {
       const { content, agentId, provider, modelId, sessionId } = msg;
 
       if (!sessionId || sessionId === 'new') {
-        // New session — send without session_id
+        // New session — send without session_id, tag as vscode
         client.sendWsMessage({
           type: 'message',
           content,
+          source: 'vscode',
           ...(agentId ? { agent_id: agentId } : {}),
           ...(provider ? { provider } : {}),
           ...(modelId ? { model_id: modelId } : {}),
@@ -795,7 +796,7 @@ function getHtml(): string {
           break;
 
         case 'sessions':
-          renderSessions(msg.sessions);
+          renderSessions((msg.sessions || []).filter((s: any) => s.source === 'vscode'));
           break;
 
         case 'models':
