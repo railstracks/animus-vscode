@@ -83,18 +83,21 @@ export class AnimusClient {
       onError?: (error: Error) => void;
     }
   ): WebSocket {
-    const wsUrl = this.baseUrl.replace(/^http/, 'ws') + '/ws/chat';
+    let wsUrl = this.baseUrl.replace(/^http/, 'ws') + '/ws/chat';
 
-    const headers: Record<string, string> = {};
+    // Pass auth token as query param (more reliable than headers for WS upgrade)
     if (this.config.authToken) {
-      headers['Authorization'] = `Bearer ${this.config.authToken}`;
+      wsUrl += '?token=' + encodeURIComponent(this.config.authToken);
     }
 
-    this.ws = new WebSocket(wsUrl, { headers });
+    console.log('[Animus] WS URL:', wsUrl.replace(/token=[^&]+/, 'token=***'));
+
+    this.ws = new WebSocket(wsUrl);
 
     // Create a promise that resolves when WS is open
     this.wsOpenPromise = new Promise<void>((resolve) => {
       this.ws!.on('open', () => {
+        console.log('[Animus] WS open, flushing', this.wsQueue.length, 'queued messages');
         // Flush queued messages
         for (const queued of this.wsQueue) {
           this.ws!.send(queued);
@@ -114,14 +117,21 @@ export class AnimusClient {
       }
     });
 
-    this.ws.on('close', () => {
+    this.ws.on('close', (code: number, reason: Buffer) => {
+      console.log('[Animus] WS close:', code, reason.toString());
       handlers.onClose?.();
     });
 
     this.ws.on('error', (err: Error) => {
-      // Clear queue on connection error — these messages won't be delivered
+      console.error('[Animus] WS error:', err.message);
+      // Clear queue on connection error
       this.wsQueue = [];
       handlers.onError?.(err);
+    });
+
+    this.ws.on('unexpected-response', (resp: any) => {
+      console.error('[Animus] WS unexpected-response:', resp.statusCode);
+      handlers.onError?.(new Error(`WebSocket upgrade rejected: HTTP ${resp.statusCode}`));
     });
 
     return this.ws;

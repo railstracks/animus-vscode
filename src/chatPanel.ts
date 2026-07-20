@@ -103,17 +103,22 @@ export class ChatPanel {
   }
 
   private connectWs(): void {
+    console.log('[Animus] Connecting WebSocket...');
     this.client.connectWebSocket({
       onOpen: () => {
+        console.log('[Animus] WebSocket connected');
         this.postMessage({ type: 'ws_open' });
       },
       onMessage: (data) => {
+        console.log('[Animus] WS event:', data.type);
         this.handleWsEvent(data);
       },
       onClose: () => {
+        console.log('[Animus] WebSocket closed');
         this.postMessage({ type: 'ws_close' });
       },
       onError: (err) => {
+        console.error('[Animus] WebSocket error:', err.message);
         this.postMessage({ type: 'ws_error', message: err.message });
       },
     });
