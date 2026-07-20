@@ -2,7 +2,7 @@
 
 import * as vscode from 'vscode';
 import { AnimusClient } from './client';
-import type { SessionTurn, ChatMessage, Attachment } from './types';
+import type { SessionTurn, ChatMessage, Agent } from './types';
 
 export class ChatPanel {
   public static currentPanel: ChatPanel | undefined;
@@ -12,6 +12,8 @@ export class ChatPanel {
   private client: AnimusClient;
   private sessionId: string;
   private daemonUrl: string;
+  private isNewSession: boolean;
+  private agents: Agent[];
   private messages: ChatMessage[] = [];
   private disposables: vscode.Disposable[] = [];
 
@@ -19,7 +21,9 @@ export class ChatPanel {
     extensionUri: vscode.Uri,
     client: AnimusClient,
     sessionId: string,
-    sessionTitle: string
+    sessionTitle: string,
+    isNewSession: boolean = false,
+    agents: Agent[] = []
   ): ChatPanel {
     const column = vscode.window.activeTextEditor
       ? vscode.ViewColumn.Two
@@ -27,7 +31,7 @@ export class ChatPanel {
 
     if (ChatPanel.currentPanel) {
       ChatPanel.currentPanel.panel.reveal(column);
-      ChatPanel.currentPanel.switchSession(sessionId, sessionTitle);
+      ChatPanel.currentPanel.switchSession(sessionId, sessionTitle, isNewSession, agents);
       return ChatPanel.currentPanel;
     }
 
@@ -42,7 +46,7 @@ export class ChatPanel {
       }
     );
 
-    ChatPanel.currentPanel = new ChatPanel(panel, extensionUri, client, sessionId, sessionTitle);
+    ChatPanel.currentPanel = new ChatPanel(panel, extensionUri, client, sessionId, sessionTitle, isNewSession, agents);
     return ChatPanel.currentPanel;
   }
 
@@ -51,17 +55,20 @@ export class ChatPanel {
     extensionUri: vscode.Uri,
     client: AnimusClient,
     sessionId: string,
-    sessionTitle: string
+    sessionTitle: string,
+    isNewSession: boolean,
+    agents: Agent[]
   ) {
     this.panel = panel;
     this.client = client;
     this.sessionId = sessionId;
+    this.isNewSession = isNewSession;
+    this.agents = agents;
+    this.daemonUrl = (client as any)['config']?.daemonUrl || 'http://localhost:8080';
 
     this.panel.iconPath = new vscode.ThemeIcon('comment-discussion');
-    this.daemonUrl = (client as any)['config']?.daemonUrl || 'http://localhost:8080';
     this.panel.webview.html = this.getHtml(sessionTitle);
 
-    // Handle messages from the webview
     this.panel.webview.onDidReceiveMessage(
       message => this.handleWebviewMessage(message),
       null,
@@ -70,25 +77,31 @@ export class ChatPanel {
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
 
-    // Connect WebSocket
     this.connectWs();
 
-    // Load history
-    this.loadHistory();
+    if (!isNewSession && sessionId) {
+      this.loadHistory();
+    }
   }
 
-  public switchSession(sessionId: string, title: string): void {
-    if (this.sessionId === sessionId) return;
+  public switchSession(sessionId: string, title: string, isNewSession: boolean = false, agents: Agent[] = []): void {
+    if (this.sessionId === sessionId && this.isNewSession === isNewSession) {
+      if (agents.length) this.agents = agents;
+      return;
+    }
     this.sessionId = sessionId;
+    this.isNewSession = isNewSession;
+    if (agents.length) this.agents = agents;
     this.messages = [];
     this.panel.title = `Animus: ${title}`;
     this.panel.webview.html = this.getHtml(title);
     this.connectWs();
-    this.loadHistory();
+    if (!isNewSession && sessionId) {
+      this.loadHistory();
+    }
   }
 
   public sendNewSessionMessage(content: string, agentId?: string): void {
-    // Add user message locally
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -98,7 +111,6 @@ export class ChatPanel {
     };
     this.messages.push(userMsg);
     this.postMessage({ type: 'user_message', message: userMsg });
-    // Send without session_id — server creates a new session
     this.client.sendNewSessionMessage(content, agentId);
   }
 
@@ -127,7 +139,6 @@ export class ChatPanel {
   private async loadHistory(): Promise<void> {
     try {
       const turns = await this.client.getSessionHistory(this.sessionId);
-      // Convert turns to chat messages (reverse to chronological order)
       const chronological = turns.slice().reverse();
       for (const turn of chronological) {
         this.addTurnToMessages(turn);
@@ -139,10 +150,9 @@ export class ChatPanel {
   }
 
   private addTurnToMessages(turn: SessionTurn): void {
-    if (turn.is_summary) return; // Skip compaction summaries in chat
+    if (turn.is_summary) return;
 
     if (turn.role === 'assistant' && turn.tool_calls && turn.tool_calls.length > 0) {
-      // Emit assistant text (if any) then tool calls
       if (turn.content) {
         this.messages.push({
           id: `turn-${turn.turn_id}`,
@@ -183,7 +193,6 @@ export class ChatPanel {
       });
     }
 
-    // Attachments
     if (turn.attachments && turn.attachments.length > 0) {
       this.messages.push({
         id: `turn-${turn.turn_id}-att`,
@@ -200,11 +209,11 @@ export class ChatPanel {
     const type = data.type;
 
     if (type === 'context') {
-      // Server sends context event when a session is bound (including new sessions)
       if (data.session_id) {
         this.sessionId = data.session_id;
+        this.isNewSession = false;
+        this.postMessage({ type: 'session_bound', session_id: data.session_id });
       }
-      // Context layers may follow but we don't need to render them
     } else if (type === 'text') {
       this.postMessage({ type: 'stream_text', content: data.content });
     } else if (type === 'thinking') {
@@ -225,37 +234,46 @@ export class ChatPanel {
         content: data.content,
       });
     } else if (type === 'attachment') {
-      this.postMessage({
-        type: 'attachment',
-        attachment: data.attachment,
-      });
+      this.postMessage({ type: 'attachment', attachment: data.attachment });
     } else if (type === 'done') {
       this.postMessage({ type: 'stream_done', interrupted: data.interrupted });
     } else if (type === 'error') {
       this.postMessage({ type: 'ws_error', message: data.message || 'Unknown server error' });
-    } else if (type === 'sessions') {
-      // Response to list_sessions request
-      this.postMessage({ type: 'sessions_list', sessions: data.sessions });
     }
   }
 
   private async handleWebviewMessage(message: any): Promise<void> {
     if (message.type === 'send') {
-      // Add user message to local list
+      const { content, agentId, provider, modelId } = message;
+
       const userMsg: ChatMessage = {
         id: `user-${Date.now()}`,
         role: 'user',
-        content: message.content,
+        content,
         timestamp: Date.now(),
         streaming: false,
       };
       this.messages.push(userMsg);
       this.postMessage({ type: 'user_message', message: userMsg });
-      // If session is still pending, send without session_id to create one
-      if (this.sessionId.startsWith('pending-')) {
-        this.client.sendNewSessionMessage(message.content);
+
+      // If new session or pending, send without session_id
+      if (!this.sessionId || this.isNewSession || this.sessionId.startsWith('pending-')) {
+        this.client.sendWsMessage({
+          type: 'message',
+          content,
+          ...(agentId ? { agent_id: agentId } : {}),
+          ...(provider ? { provider } : {}),
+          ...(modelId ? { model_id: modelId } : {}),
+        });
+        this.isNewSession = false;
       } else {
-        this.client.sendUserMessage(this.sessionId, message.content);
+        this.client.sendWsMessage({
+          type: 'message',
+          session_id: this.sessionId,
+          content,
+          ...(provider ? { provider } : {}),
+          ...(modelId ? { model_id: modelId } : {}),
+        });
       }
     }
   }
@@ -265,12 +283,16 @@ export class ChatPanel {
   }
 
   private getHtml(title: string): string {
+    const agentOptions = this.agents.map(a =>
+      `<option value="${escAttr(a.id)}">${escHtml(a.name || a.id)} (${escHtml(a.model)})</option>`
+    ).join('');
+
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Animus: ${title}</title>
+  <title>Animus: ${escHtml(title)}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -282,6 +304,37 @@ export class ChatPanel {
       flex-direction: column;
       height: 100vh;
     }
+
+    /* ---- Toolbar ---- */
+    #toolbar {
+      display: flex;
+      gap: 8px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c);
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    #toolbar select {
+      background: var(--vscode-dropdown-background, #3c3c3c);
+      color: var(--vscode-dropdown-foreground, #d4d4d4);
+      border: 1px solid var(--vscode-dropdown-border, #3c3c3c);
+      padding: 4px 8px;
+      border-radius: 3px;
+      font-family: inherit;
+      font-size: 0.85em;
+      cursor: pointer;
+      outline: none;
+    }
+    #toolbar select:focus {
+      border-color: var(--vscode-focusBorder, #007fd4);
+    }
+    #toolbar label {
+      font-size: 0.75em;
+      opacity: 0.6;
+    }
+    #toolbar .spacer { flex: 1; }
+
+    /* ---- Messages ---- */
     #messages {
       flex: 1;
       overflow-y: auto;
@@ -327,9 +380,7 @@ export class ChatPanel {
       font-size: 0.85em;
       opacity: 0.8;
     }
-    .collapsible-header:hover {
-      opacity: 1;
-    }
+    .collapsible-header:hover { opacity: 1; }
     .collapsible-header .chevron {
       transition: transform 0.15s;
       font-size: 0.7em;
@@ -343,9 +394,7 @@ export class ChatPanel {
       max-height: 300px;
       overflow-y: auto;
     }
-    .collapsible-content.collapsed {
-      display: none;
-    }
+    .collapsible-content.collapsed { display: none; }
     .message .thinking {
       font-size: 0.85em;
       opacity: 0.7;
@@ -354,6 +403,8 @@ export class ChatPanel {
       border-left: 2px solid var(--vscode-textLink-foreground, #3794ff);
       padding-left: 8px;
     }
+
+    /* ---- Attachments ---- */
     .attachment {
       margin-top: 8px;
       border: 1px solid var(--vscode-panel-border, #3c3c3c);
@@ -372,6 +423,8 @@ export class ChatPanel {
       font-size: 0.8em;
       opacity: 0.7;
     }
+
+    /* ---- Input ---- */
     #input-area {
       display: flex;
       gap: 8px;
@@ -391,6 +444,10 @@ export class ChatPanel {
       min-height: 36px;
       max-height: 120px;
     }
+    #input:focus {
+      border-color: var(--vscode-focusBorder, #007fd4);
+      outline: none;
+    }
     #send-btn {
       background: var(--vscode-button-background, #0e639c);
       color: var(--vscode-button-foreground, #fff);
@@ -403,6 +460,9 @@ export class ChatPanel {
     #send-btn:disabled {
       opacity: 0.5;
       cursor: default;
+    }
+    #send-btn:hover:not(:disabled) {
+      background: var(--vscode-button-hoverBackground, #1177bb);
     }
     #status {
       padding: 4px 12px;
@@ -418,12 +478,24 @@ export class ChatPanel {
   </style>
 </head>
 <body>
+  <div id="toolbar">
+    <label>Agent</label>
+    <select id="agent-select">
+      <option value="">Default</option>
+      ${agentOptions}
+    </select>
+    <label>Provider</label>
+    <input id="provider-input" placeholder="auto" style="background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); padding: 4px 8px; border-radius: 3px; font-size: 0.85em; width: 100px;" />
+    <label>Model</label>
+    <input id="model-input" placeholder="auto" style="background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); padding: 4px 8px; border-radius: 3px; font-size: 0.85em; width: 120px;" />
+    <div class="spacer"></div>
+  </div>
   <div id="messages"></div>
   <div id="input-area">
     <textarea id="input" placeholder="Send a message..." rows="1"></textarea>
     <button id="send-btn">Send</button>
   </div>
-  <div id="status">Ready</div>
+  <div id="status">Connecting...</div>
 
   <script>
     const vscode = acquireVsCodeApi();
@@ -433,17 +505,18 @@ export class ChatPanel {
     const inputEl = document.getElementById('input');
     const sendBtn = document.getElementById('send-btn');
     const statusEl = document.getElementById('status');
+    const agentSelect = document.getElementById('agent-select');
+    const providerInput = document.getElementById('provider-input');
+    const modelInput = document.getElementById('model-input');
 
     let currentAssistantEl = null;
     let streaming = false;
 
-    // Auto-resize textarea
     inputEl.addEventListener('input', () => {
       inputEl.style.height = 'auto';
       inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
     });
 
-    // Send on Enter (Shift+Enter for newline)
     inputEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -456,7 +529,14 @@ export class ChatPanel {
     function sendMessage() {
       const content = inputEl.value.trim();
       if (!content || streaming) return;
-      vscode.postMessage({ type: 'send', content });
+
+      vscode.postMessage({
+        type: 'send',
+        content,
+        agentId: agentSelect.value || undefined,
+        provider: providerInput.value.trim() || undefined,
+        modelId: modelInput.value.trim() || undefined,
+      });
       inputEl.value = '';
       inputEl.style.height = 'auto';
     }
@@ -469,7 +549,6 @@ export class ChatPanel {
       const isTool = msg.role === 'tool_call' || msg.role === 'tool';
 
       if (isTool) {
-        // Collapsible tool block
         const header = document.createElement('div');
         header.className = 'collapsible-header';
         const chevron = document.createElement('span');
@@ -529,7 +608,7 @@ export class ChatPanel {
       if (att.mime_type && att.mime_type.startsWith('image/')) {
         const img = document.createElement('img');
         const base = DAEMON_URL + '/api/v1/sessions/' + SESSION_ID + '/attachments/' + att.id;
-        img.src = att.access_token ? base + '?token=' + att.access_token : base;
+        img.src = att.access_token ? base + '?token=*** + att.access_token : base;
         img.alt = att.filename;
         el.appendChild(img);
       }
@@ -556,7 +635,6 @@ export class ChatPanel {
       statusEl.textContent = text;
     }
 
-    // Handle messages from extension
     window.addEventListener('message', (event) => {
       const msg = event.data;
 
@@ -605,7 +683,6 @@ export class ChatPanel {
           break;
 
         case 'tool_call':
-          // Finalize current streaming message
           if (currentAssistantEl) {
             currentAssistantEl.classList.remove('streaming-cursor');
             currentAssistantEl = null;
@@ -653,6 +730,10 @@ export class ChatPanel {
           setStatus(msg.interrupted ? 'Stopped' : 'Ready');
           break;
 
+        case 'session_bound':
+          // Session ID assigned by server
+          break;
+
         case 'ws_open':
           setStatus('Connected');
           break;
@@ -686,4 +767,12 @@ export class ChatPanel {
       if (d) d.dispose();
     }
   }
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
