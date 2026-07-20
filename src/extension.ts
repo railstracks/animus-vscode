@@ -11,8 +11,11 @@ let client: AnimusClient | null = null;
 let sessionProvider: SessionProvider;
 let statusBarItem: vscode.StatusBarItem;
 let pollInterval: NodeJS.Timeout | null = null;
+let extContext: vscode.ExtensionContext;
 
 export function activate(context: vscode.ExtensionContext): void {
+  extContext = context;
+
   // Create session provider
   sessionProvider = new SessionProvider();
   vscode.window.registerTreeDataProvider('animus-sessions', sessionProvider);
@@ -51,7 +54,7 @@ export function deactivate(): void {
 
 // ---- Connection Management ----
 
-async function connect(context: vscode.ExtensionContext): Promise<void> {
+async function connect(_context: vscode.ExtensionContext): Promise<void> {
   let config = getConfig();
 
   if (!config.daemonUrl || !config.authToken) {
@@ -142,7 +145,7 @@ async function newSession(): Promise<void> {
     await refreshSessions();
 
     // Open chat for the new session
-    const extensionUri = vscode.extensions.getExtension('artificers.animus')?.extensionUri;
+    const extensionUri = extContext.extensionUri;
     if (extensionUri) {
       ChatPanel.createOrShow(extensionUri, client, sessionId, 'New Session');
     }
@@ -165,7 +168,7 @@ async function openChat(item: any): Promise<void> {
     return;
   }
 
-  const extensionUri = vscode.extensions.getExtension('artificers.animus')?.extensionUri;
+  const extensionUri = extContext.extensionUri;
   if (!extensionUri) return;
 
   const title = item?.session?.conversation_id || `Session ${sessionId}`;
@@ -210,10 +213,7 @@ async function configureConnection(): Promise<void> {
   // Reconnect with new config
   if (client) {
     disconnect();
-    const context = vscode.extensions.getExtension('artificers.animus')?.activationKind;
-    await connect(
-      vscode.extensions.getExtension('artificers.animus')?.extensionUri ?? vscode.Uri.file('.')
-    );
+    await connect(extContext);
   }
 }
 
