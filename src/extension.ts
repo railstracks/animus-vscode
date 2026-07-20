@@ -142,19 +142,12 @@ async function refreshSessions(): Promise<void> {
 }
 
 function pushDataToView(): void {
-  const payload = {
+  postToView({
     type: 'init',
     agents: cachedAgents,
     providers: cachedProviders,
     defaultProvider: cachedDefaultProvider,
-  };
-  console.log('[Animus] pushDataToView:', {
-    viewExists: !!view,
-    agents: cachedAgents.length,
-    providers: cachedProviders.length,
-    defaultProvider: cachedDefaultProvider,
   });
-  postToView(payload);
 }
 
 async function loadProviderModels(providerId: string): Promise<void> {
@@ -209,7 +202,6 @@ function connectWs(): void {
 async function handleWebviewMessage(msg: any): Promise<void> {
   switch (msg.type) {
     case 'view_ready':
-      console.log('[Animus] view_ready received, client:', !!client, 'agents:', cachedAgents.length);
       if (client) {
         pushDataToView();
         connectWs();
@@ -591,7 +583,7 @@ function getHtml(): string {
 
   <script>
     window.addEventListener('error', (e) => {
-      document.title = 'ERR:' + e.message + ':' + (e.filename||'') + ':' + e.lineno;
+      document.title = 'ERR:' + e.message + ':' + e.lineno;
     });
     const vscode = acquireVsCodeApi();
 
@@ -788,15 +780,12 @@ function getHtml(): string {
     // ---- Message handler from extension ----
     window.addEventListener('message', (event) => {
       const msg = event.data;
-      dbg('recv:' + msg.type);
 
       switch (msg.type) {
         case 'init':
-          console.log('[Animus] init received:', { agents: (msg.agents||[]).length, providers: (msg.providers||[]).length, defaultProvider: msg.defaultProvider });
           // Populate agents
           agentSelect.innerHTML = '';
           for (const a of (msg.agents || [])) {
-            console.log('[Animus] agent:', JSON.stringify(a));
             const opt = document.createElement('option');
             opt.value = a.id;
             opt.textContent = a.name || a.id;
@@ -820,7 +809,7 @@ function getHtml(): string {
           break;
 
         case 'sessions':
-          renderSessions((msg.sessions || []).filter((s: any) => s.source === 'vscode'));
+          renderSessions((msg.sessions || []).filter(function(s) { return s.source === 'vscode'; }));
           break;
 
         case 'models':
@@ -909,14 +898,6 @@ function getHtml(): string {
 
     // Notify extension that view is ready
     vscode.postMessage({ type: 'view_ready' });
-
-    // Debug: surface diagnostics in the UI temporarily
-    window.__animusDebug = { viewReadySent: Date.now(), initReceived: false, events: [] };
-    const origHandler = window.addEventListener;
-    const debugEl = document.createElement('div');
-    debugEl.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#2d2d30;color:#888;font-size:10px;font-family:monospace;padding:4px 8px;max-height:100px;overflow-y:auto;z-index:9999;pointer-events:none;';
-    document.body.appendChild(debugEl);
-    function dbg(msg) { debugEl.textContent += msg + ' | '; }
   </script>
 </body>
 </html>`;
