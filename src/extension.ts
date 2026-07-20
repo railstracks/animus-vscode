@@ -590,6 +590,9 @@ function getHtml(): string {
   </div>
 
   <script>
+    window.addEventListener('error', (e) => {
+      document.title = 'ERR:' + e.message + ':' + (e.filename||'') + ':' + e.lineno;
+    });
     const vscode = acquireVsCodeApi();
 
     // State
