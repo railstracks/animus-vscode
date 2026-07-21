@@ -1,0 +1,12 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background: dark rounded square -->
+  <rect width="128" height="128" rx="24" fill="#1a1a2e"/>
+  
+  <!-- Stacked chevron layers — copper/amber palette, tighter spacing -->
+  <!-- Top: solid diamond (brightest copper) -->
+  <path d="M64 28 L30 46 L64 64 L98 46 L64 28Z" fill="#e8b057"/>
+  <!-- Middle: chevron (amber, slightly dimmer) -->
+  <path d="M30 66 L64 84 L98 66" stroke="#d49651" stroke-width="6" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
+  <!-- Bottom: chevron (warmer amber, still visible) -->
+  <path d="M30 84 L64 102 L98 84" stroke="#b87d3e" stroke-width="6" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
+</svg>
