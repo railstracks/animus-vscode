@@ -1,5 +1,5 @@
 {
-  "name": "animus",
+  "name": "animus-agent",
   "displayName": "Animus",
   "description": "Persistent AI agents in your IDE — powered by Animus",
   "version": "0.0.1",
