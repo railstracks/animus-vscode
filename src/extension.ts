@@ -13,6 +13,53 @@ let view: vscode.WebviewView | null = null;
 
 let cachedAgents: Agent[] = [];
 let cachedProviders: Provider[] = [];
+
+// Gather workspace context for injection into user messages
+function buildWorkspaceContext(): string {
+  const config = vscode.workspace.getConfiguration('animus');
+  const nodeName = config.get<string>('node') || '';
+
+  const lines: string[] = [];
+  lines.push('[VSCode context]');
+  if (nodeName) lines.push(`Node: ${nodeName}`);
+  lines.push('Session: VSCode');
+
+  // Project directories
+  const folders = vscode.workspace.workspaceFolders;
+  if (folders && folders.length > 0) {
+    const dirs = folders.map(f => f.uri.fsPath).join(', ');
+    lines.push(`Project Directories: ${dirs}`);
+  }
+
+  // Open tabs (background) vs active editors
+  const activeEditor = vscode.window.activeTextEditor;
+  const activePaths = new Set<string>();
+  if (activeEditor) {
+    activePaths.add(activeEditor.document.uri.fsPath);
+  }
+
+  const openPaths: string[] = [];
+  for (const tabGroup of vscode.window.tabGroups.all) {
+    for (const tab of tabGroup.tabs) {
+      if (tab.input instanceof vscode.TabInputText) {
+        const p = tab.input.uri.fsPath;
+        if (!activePaths.has(p)) {
+          openPaths.push(p);
+        }
+      }
+    }
+  }
+
+  if (openPaths.length > 0) {
+    lines.push(`Open Files: ${openPaths.join(', ')}`);
+  }
+  if (activePaths.size > 0) {
+    lines.push(`Active Files: ${Array.from(activePaths).join(', ')}`);
+  }
+
+  lines.push('[end context]');
+  return lines.join('\n');
+}
 let cachedDefaultProvider = '';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -214,12 +261,16 @@ async function handleWebviewMessage(msg: any): Promise<void> {
       const { content, agentId, provider, modelId, sessionId, reasoningEnabled, reasoningEffort: reasoningEffortVal } = msg;
       console.log('[Animus] send_message:', { agentId, provider, modelId, sessionId, reasoningEnabled, reasoningEffort: reasoningEffortVal, contentLen: content.length });
 
+      // Prepend workspace context to the user message
+      const wsContext = buildWorkspaceContext();
+      const fullContent = `${wsContext}\n\n${content}`;
+
       if (!sessionId || sessionId === 'new') {
         // New session — send without session_id, tag as vscode
         activeSessionId = ''; // Reset — will be set by context event
         client.sendWsMessage({
           type: 'message',
-          content,
+          content: fullContent,
           source: 'vscode',
           ...(agentId ? { agent_id: agentId } : {}),
           ...(provider ? { provider } : {}),
@@ -231,7 +282,7 @@ async function handleWebviewMessage(msg: any): Promise<void> {
         client.sendWsMessage({
           type: 'message',
           session_id: sessionId,
-          content,
+          content: fullContent,
           ...(provider ? { provider } : {}),
           ...(modelId ? { model_id: modelId } : {}),
           reasoning_enabled: !!reasoningEnabled,

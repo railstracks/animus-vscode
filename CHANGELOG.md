@@ -2,6 +2,11 @@
 
 All notable changes to the Animus VSCode Extension will be documented in this file.
 
+## [0.0.2] - 2026-07-21
+
+### Added
+- Workspace context injection — messages now include open project directories, background files, and active files so the agent knows what you're working on
+
 ## [0.0.1] - 2026-07-21
 
 ### Added
