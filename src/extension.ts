@@ -564,6 +564,20 @@ function getHtml(): string {
     }
     .streaming-cursor::after { content: '▋'; animation: blink 1s infinite; }
     @keyframes blink { 50% { opacity: 0; } }
+    #chat-settings-toggle {
+      background: none; border: none; cursor: pointer;
+      color: var(--vscode-foreground, #d4d4d4);
+      font-size: 1.1em; padding: 4px;
+    }
+    #chat-settings-toggle:hover { opacity: 0.8; }
+    #chat-settings {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    #chat-settings.collapsed { display: none; }
   </style>
 </head>
 <body>
@@ -602,6 +616,26 @@ function getHtml(): string {
     <div id="chat-header">
       <button id="back-btn" title="Back">←</button>
       <span id="chat-title">Chat</span>
+      <button id="chat-settings-toggle" title="Settings">⚙</button>
+    </div>
+    <div id="chat-settings" class="collapsed">
+      <label class="field-label" for="chat-agent-select">Agent</label>
+      <select id="chat-agent-select"></select>
+      <label class="field-label" for="chat-provider-select">Provider</label>
+      <select id="chat-provider-select"></select>
+      <label class="field-label" for="chat-model-select">Model</label>
+      <select id="chat-model-select"></select>
+      <div class="form-row">
+        <label class="field-label" for="chat-reasoning-toggle" style="margin:0;">Reasoning</label>
+        <input type="checkbox" id="chat-reasoning-toggle" />
+        <select id="chat-reasoning-effort" style="flex:1;">
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high" selected>high</option>
+          <option value="xhigh">xhigh</option>
+          <option value="max">max</option>
+        </select>
+      </div>
     </div>
     <div id="chat-messages"></div>
     <div id="chat-input-area">
@@ -644,6 +678,13 @@ function getHtml(): string {
     const chatTitle = document.getElementById('chat-title');
     const chatStatus = document.getElementById('chat-status');
     const backBtn = document.getElementById('back-btn');
+    const chatSettingsToggle = document.getElementById('chat-settings-toggle');
+    const chatSettings = document.getElementById('chat-settings');
+    const chatAgentSelect = document.getElementById('chat-agent-select');
+    const chatProviderSelect = document.getElementById('chat-provider-select');
+    const chatModelSelect = document.getElementById('chat-model-select');
+    const chatReasoningToggle = document.getElementById('chat-reasoning-toggle');
+    const chatReasoningEffort = document.getElementById('chat-reasoning-effort');
 
     // ---- Send from main view ----
     sendBtn.addEventListener('click', () => {
@@ -733,6 +774,66 @@ function getHtml(): string {
       vscode.postMessage({ type: 'refresh_sessions' });
     });
 
+    // ---- Chat settings toggle ----
+    chatSettingsToggle.addEventListener('click', () => {
+      chatSettings.classList.toggle('collapsed');
+    });
+
+    // Sync chat settings dropdowns with main form
+    function syncChatSettings() {
+      // Copy agent list
+      chatAgentSelect.innerHTML = agentSelect.innerHTML;
+      chatAgentSelect.value = agentSelect.value;
+      // Copy provider list
+      chatProviderSelect.innerHTML = providerSelect.innerHTML;
+      chatProviderSelect.value = providerSelect.value;
+      // Copy model list
+      chatModelSelect.innerHTML = modelSelect.innerHTML;
+      chatModelSelect.value = modelSelect.value;
+      // Copy reasoning
+      chatReasoningToggle.checked = reasoningToggle.checked;
+      chatReasoningEffort.value = reasoningEffort.value;
+    }
+
+    // Provider change in chat settings
+    chatProviderSelect.addEventListener('change', () => {
+      const pid = chatProviderSelect.value;
+      chatModelSelect.innerHTML = '';
+      if (!pid) return;
+      if (modelsCache[pid]) {
+        populateChatModels(modelsCache[pid]);
+      } else {
+        vscode.postMessage({ type: 'load_models', providerId: pid });
+      }
+    });
+
+    function populateChatModels(models) {
+      chatModelSelect.innerHTML = '';
+      for (const m of models) {
+        const opt = document.createElement('option');
+        opt.value = m; opt.textContent = m;
+        chatModelSelect.appendChild(opt);
+      }
+    }
+
+    // Agent change in chat settings
+    chatAgentSelect.addEventListener('change', () => {
+      const selected = agentsData.find(a => a.id === chatAgentSelect.value);
+      if (selected && selected.model && selected.model.provider) {
+        chatProviderSelect.value = selected.model.provider;
+        vscode.postMessage({ type: 'load_models', providerId: selected.model.provider });
+        if (selected.model.model_id) {
+          pendingChatModelSelect = selected.model.model_id;
+        }
+      }
+      if (selected && selected.reasoning) {
+        chatReasoningToggle.checked = selected.reasoning.enabled;
+        if (selected.reasoning.effort) chatReasoningEffort.value = selected.reasoning.effort;
+      }
+    });
+
+    let pendingChatModelSelect = '';
+
     // ---- Chat input ----
     chatInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend.click(); }
@@ -745,7 +846,20 @@ function getHtml(): string {
       const content = chatInput.value.trim();
       if (!content || streaming) return;
       appendMsg({ role: 'user', content, id: 'u' + Date.now() });
-      vscode.postMessage({ type: 'send_message', content, sessionId: chatSessionId });
+      // Include settings from chat panel
+      const provider = chatProviderSelect.value || undefined;
+      const modelId = chatModelSelect.value || undefined;
+      const reasoningOn = chatReasoningToggle.checked;
+      const reasoningLevel = chatReasoningEffort.value;
+      vscode.postMessage({
+        type: 'send_message',
+        content,
+        sessionId: chatSessionId,
+        provider,
+        modelId,
+        reasoningEnabled: reasoningOn,
+        reasoningEffort: reasoningLevel,
+      });
       chatInput.value = '';
       chatInput.style.height = 'auto';
       setStreaming(true);
@@ -798,6 +912,8 @@ function getHtml(): string {
      chatMessages.innerHTML = '';
      currentAssistantEl = null;
      currentThinkingEl = null;
+     syncChatSettings();
+     chatSettings.classList.add('collapsed');
      setStatus('Ready');
     }
 
@@ -893,6 +1009,15 @@ function getHtml(): string {
           modelsCache[msg.providerId] = msg.models || [];
           if (providerSelect.value === msg.providerId) {
             populateModels(msg.models || []);
+          }
+          if (chatProviderSelect.value === msg.providerId) {
+            populateChatModels(msg.models || []);
+            if (pendingChatModelSelect) {
+              if (msg.models.includes(pendingChatModelSelect)) {
+                chatModelSelect.value = pendingChatModelSelect;
+              }
+              pendingChatModelSelect = '';
+            }
           }
           break;
 
