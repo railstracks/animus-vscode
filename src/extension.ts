@@ -182,14 +182,7 @@ function connectWs(): void {
       postToView({ type: 'ws_open' });
     },
     onMessage: (data) => {
-      // Only forward events relevant to the active session or connection events
-      // Filter out observation stream events (subscribed automatically on /ws/chat)
-      if (data.type === 'observation') return;
-      // For session-scoped events, check session_id matches
-      // Allow events with no session_id (connection-level) and context events (which set the session)
-      if (data.session_id && activeSessionId && data.type !== 'context' && data.session_id !== activeSessionId) {
-        return;
-      }
+      // Route WS events to the webview
       if (data.type === 'context' && data.session_id) {
         activeSessionId = data.session_id;
       }
@@ -844,12 +837,51 @@ function getHtml(): string {
             } else if (t.content) {
               appendMsg({ role: t.role === 'user' ? 'user' : 'assistant', content: t.content, id: 't' + t.turn_id });
             }
+            // Render thinking content from history
+            if (t.thinking_content) {
+              // Create a separate thinking block after the message
+              const thinkMsg = appendMsg({ role: 'assistant', content: '', id: 't' + t.turn_id + '-think' });
+              const header = document.createElement('div');
+              header.className = 'collapsible-header collapsed';
+              const chevron = document.createElement('span');
+              chevron.className = 'chevron'; chevron.textContent = '▼';
+              const label = document.createElement('span');
+              label.textContent = '💭 Thinking';
+              header.appendChild(chevron);
+              header.appendChild(label);
+              const thinkContent = document.createElement('div');
+              thinkContent.className = 'collapsible-content collapsed';
+              thinkContent.style.fontStyle = 'italic';
+              thinkContent.style.opacity = '0.7';
+              thinkContent.textContent = t.thinking_content;
+              thinkMsg.appendChild(header);
+              thinkMsg.appendChild(thinkContent);
+              header.addEventListener('click', () => {
+                header.classList.toggle('collapsed');
+                thinkContent.classList.toggle('collapsed');
+              });
+            }
           }
           chatMessages.scrollTop = chatMessages.scrollHeight;
           break;
 
         case 'context':
           if (msg.session_id) chatSessionId = msg.session_id;
+          break;
+
+        case 'token':
+          if (!currentAssistantEl) {
+            currentAssistantEl = appendMsg({ role: 'assistant', content: '', id: 's' + Date.now() });
+            currentAssistantEl.classList.add('streaming-cursor');
+          }
+          let tokenDiv = currentAssistantEl.querySelector('.content');
+          if (!tokenDiv) {
+            tokenDiv = document.createElement('div');
+            tokenDiv.className = 'content';
+            currentAssistantEl.appendChild(tokenDiv);
+          }
+          tokenDiv.textContent += msg.content;
+          chatMessages.scrollTop = chatMessages.scrollHeight;
           break;
 
         case 'text':
@@ -864,6 +896,36 @@ function getHtml(): string {
             currentAssistantEl.appendChild(textDiv);
           }
           textDiv.textContent += msg.content;
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+          break;
+
+        case 'thinking':
+          // Show thinking in a collapsible block inside the current assistant message
+          if (!currentAssistantEl) {
+            currentAssistantEl = appendMsg({ role: 'assistant', content: '', id: 's' + Date.now() });
+          }
+          let thinkBlock = currentAssistantEl.querySelector('.thinking-block');
+          if (!thinkBlock) {
+            const header = document.createElement('div');
+            header.className = 'collapsible-header';
+            const chevron = document.createElement('span');
+            chevron.className = 'chevron'; chevron.textContent = '▼';
+            const label = document.createElement('span');
+            label.textContent = '💭 Thinking';
+            header.appendChild(chevron);
+            header.appendChild(label);
+            thinkBlock = document.createElement('div');
+            thinkBlock.className = 'collapsible-content thinking-block';
+            thinkBlock.style.fontStyle = 'italic';
+            thinkBlock.style.opacity = '0.7';
+            currentAssistantEl.appendChild(header);
+            currentAssistantEl.appendChild(thinkBlock);
+            header.addEventListener('click', () => {
+              header.classList.toggle('collapsed');
+              thinkBlock.classList.toggle('collapsed');
+            });
+          }
+          thinkBlock.textContent += msg.content;
           chatMessages.scrollTop = chatMessages.scrollHeight;
           break;
 
