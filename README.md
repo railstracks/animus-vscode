@@ -6,6 +6,8 @@
 
 Animus is a VSCode extension that connects to an [Animus](https://github.com/railstracks/animus) daemon, bringing persistent, multi-provider AI agents directly into your development workflow.
 
+**What is Animus?** [Animus](https://animus.steadyfort.com) is an open-source agent framework that provides persistent AI agents with memory, tool execution, and multi-provider LLM support. The agent isn't the model — swap GPT → GLM → Ollama and agent continuity, knowledge, and memories persist. Learn more at [animus.steadyfort.com](https://animus.steadyfort.com) or browse the source at [github.com/railstracks/animus](https://github.com/railstracks/animus).
+
 The extension is a thin client — all intelligence, memory, and tool execution lives in the Animus daemon. The extension handles connection, session browsing, chat, and streaming.
 
 ## Features
@@ -26,10 +28,13 @@ Works with local daemons (`localhost`) or remote servers. Your agent's memory an
 
 ### Prerequisites
 
-- An [Animus daemon](https://github.com/railstracks/animus) running locally or remotely
+- An [Animus](https://github.com/railstracks/animus) daemon (v0.1+) running locally or remotely — [installation guide](https://github.com/railstracks/animus#getting-started)
 - Admin auth token for the daemon
 
 ### Installation
+
+**From Marketplace:**
+Search for "Animus" in the VSCode Extensions panel, or install from the [marketplace page](https://marketplace.visualstudio.com/vscode).
 
 **From VSIX:**
 ```bash
@@ -69,6 +74,13 @@ VSCode Extension → WebSocket → Animus Daemon → LLM Provider
 ```
 
 The extension communicates with the daemon via HTTP REST and WebSocket. The daemon handles LLM inference, tool execution, session management, and memory persistence.
+
+## Links
+
+- **Website:** [animus.steadyfort.com](https://animus.steadyfort.com)
+- **Animus source:** [github.com/railstracks/animus](https://github.com/railstracks/animus)
+- **Extension source:** [github.com/railstracks/animus-vscode](https://github.com/railstracks/animus-vscode)
+- **Discord:** [Join the community](https://discord.gg/ruRk76M93n)
 
 ## License
 
