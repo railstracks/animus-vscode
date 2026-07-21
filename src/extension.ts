@@ -212,6 +212,7 @@ async function handleWebviewMessage(msg: any): Promise<void> {
     case 'send_message': {
       if (!client) return;
       const { content, agentId, provider, modelId, sessionId } = msg;
+      console.log('[Animus] send_message:', { agentId, provider, modelId, sessionId, contentLen: content.length });
 
       if (!sessionId || sessionId === 'new') {
         // New session — send without session_id, tag as vscode
@@ -594,6 +595,7 @@ function getHtml(): string {
     let chatSessionId = '';
     let streaming = false;
     let currentAssistantEl = null;
+    let currentThinkingEl = null;
     let modelsCache = {};  // providerId -> string[]
 
     // ---- Elements ----
@@ -727,9 +729,10 @@ function getHtml(): string {
       mainView.style.display = 'none';
       chatView.style.display = 'flex';
       chatTitle.textContent = title;
-      chatMessages.innerHTML = '';
-      currentAssistantEl = null;
-      setStatus('Ready');
+     chatMessages.innerHTML = '';
+     currentAssistantEl = null;
+     currentThinkingEl = null;
+     setStatus('Ready');
     }
 
     function appendMsg(msg) {
@@ -827,20 +830,11 @@ function getHtml(): string {
           // Reverse to chronological
           for (const t of turns.slice().reverse()) {
             if (t.is_summary) continue;
-            if (t.role === 'assistant' && t.tool_calls) {
-              if (t.content) appendMsg({ role: 'assistant', content: t.content, id: 't' + t.turn_id });
-              for (const tc of t.tool_calls) {
-                appendMsg({ role: 'tool_call', content: tc.arguments, toolName: tc.name, id: 'tc' + tc.id });
-              }
-            } else if (t.role === 'tool') {
-              appendMsg({ role: 'tool', content: t.content, toolName: t.tool_name, id: 'tr' + t.turn_id });
-            } else if (t.content) {
-              appendMsg({ role: t.role === 'user' ? 'user' : 'assistant', content: t.content, id: 't' + t.turn_id });
-            }
-            // Render thinking content from history
+            // Render thinking content from history (before the text response)
             if (t.thinking_content) {
-              // Create a separate thinking block after the message
-              const thinkMsg = appendMsg({ role: 'assistant', content: '', id: 't' + t.turn_id + '-think' });
+              const thinkMsg = document.createElement('div');
+              thinkMsg.className = 'msg assistant';
+              thinkMsg.id = 't' + t.turn_id + '-think';
               const header = document.createElement('div');
               header.className = 'collapsible-header collapsed';
               const chevron = document.createElement('span');
@@ -856,11 +850,23 @@ function getHtml(): string {
               thinkContent.textContent = t.thinking_content;
               thinkMsg.appendChild(header);
               thinkMsg.appendChild(thinkContent);
+              chatMessages.appendChild(thinkMsg);
               header.addEventListener('click', () => {
                 header.classList.toggle('collapsed');
                 thinkContent.classList.toggle('collapsed');
               });
             }
+
+            if (t.role === 'assistant' && t.tool_calls) {
+             if (t.content) appendMsg({ role: 'assistant', content: t.content, id: 't' + t.turn_id });
+             for (const tc of t.tool_calls) {
+               appendMsg({ role: 'tool_call', content: tc.arguments, toolName: tc.name, id: 'tc' + tc.id });
+             }
+           } else if (t.role === 'tool') {
+             appendMsg({ role: 'tool', content: t.content, toolName: t.tool_name, id: 'tr' + t.turn_id });
+           } else if (t.content) {
+             appendMsg({ role: t.role === 'user' ? 'user' : 'assistant', content: t.content, id: 't' + t.turn_id });
+           }
           }
           chatMessages.scrollTop = chatMessages.scrollHeight;
           break;
@@ -870,6 +876,8 @@ function getHtml(): string {
           break;
 
         case 'token':
+          // Close thinking block — text response starts now
+          currentThinkingEl = null;
           if (!currentAssistantEl) {
             currentAssistantEl = appendMsg({ role: 'assistant', content: '', id: 's' + Date.now() });
             currentAssistantEl.classList.add('streaming-cursor');
@@ -899,42 +907,44 @@ function getHtml(): string {
           chatMessages.scrollTop = chatMessages.scrollHeight;
           break;
 
-        case 'thinking':
-          // Show thinking in a collapsible block inside the current assistant message
-          if (!currentAssistantEl) {
-            currentAssistantEl = appendMsg({ role: 'assistant', content: '', id: 's' + Date.now() });
-          }
-          let thinkBlock = currentAssistantEl.querySelector('.thinking-block');
-          if (!thinkBlock) {
-            const header = document.createElement('div');
-            header.className = 'collapsible-header';
-            const chevron = document.createElement('span');
-            chevron.className = 'chevron'; chevron.textContent = '▼';
-            const label = document.createElement('span');
-            label.textContent = '💭 Thinking';
-            header.appendChild(chevron);
-            header.appendChild(label);
-            thinkBlock = document.createElement('div');
-            thinkBlock.className = 'collapsible-content thinking-block';
-            thinkBlock.style.fontStyle = 'italic';
-            thinkBlock.style.opacity = '0.7';
-            currentAssistantEl.appendChild(header);
-            currentAssistantEl.appendChild(thinkBlock);
-            header.addEventListener('click', () => {
-              header.classList.toggle('collapsed');
-              thinkBlock.classList.toggle('collapsed');
+       case 'thinking':
+          // Create a standalone collapsible thinking block
+          if (!currentThinkingEl) {
+            currentThinkingEl = document.createElement('div');
+            currentThinkingEl.className = 'msg assistant';
+            currentThinkingEl.id = 'think-' + Date.now();
+            const thHeader = document.createElement('div');
+            thHeader.className = 'collapsible-header';
+            const thChevron = document.createElement('span');
+            thChevron.className = 'chevron'; thChevron.textContent = '▼';
+            const thLabel = document.createElement('span');
+            thLabel.textContent = '💭 Thinking';
+            thHeader.appendChild(thChevron);
+            thHeader.appendChild(thLabel);
+            const thBody = document.createElement('div');
+            thBody.className = 'collapsible-content';
+            thBody.style.fontStyle = 'italic';
+            thBody.style.opacity = '0.7';
+            currentThinkingEl.appendChild(thHeader);
+            currentThinkingEl.appendChild(thBody);
+            chatMessages.appendChild(currentThinkingEl);
+            thHeader.addEventListener('click', () => {
+              thHeader.classList.toggle('collapsed');
+              thBody.classList.toggle('collapsed');
             });
           }
-          thinkBlock.textContent += msg.content;
-          chatMessages.scrollTop = chatMessages.scrollHeight;
-          break;
+          const thinkBody = currentThinkingEl.querySelector('.collapsible-content');
+          if (thinkBody) thinkBody.textContent += msg.content;
+         chatMessages.scrollTop = chatMessages.scrollHeight;
+         break;
 
-        case 'tool_call':
-          if (currentAssistantEl) {
-            currentAssistantEl.classList.remove('streaming-cursor');
-            currentAssistantEl = null;
-          }
-          appendMsg({ role: 'tool_call', content: msg.arguments, toolName: msg.tool_name, id: 'tc' + msg.tool_call_id });
+       case 'tool_call':
+         if (currentAssistantEl) {
+           currentAssistantEl.classList.remove('streaming-cursor');
+           currentAssistantEl = null;
+         }
+         currentThinkingEl = null;
+         appendMsg({ role: 'tool_call', content: msg.arguments, toolName: msg.tool_name, id: 'tc' + msg.tool_call_id });
           break;
 
         case 'tool_result':
@@ -946,6 +956,7 @@ function getHtml(): string {
             currentAssistantEl.classList.remove('streaming-cursor');
             currentAssistantEl = null;
           }
+          currentThinkingEl = null;
           setStreaming(false);
           break;
 
