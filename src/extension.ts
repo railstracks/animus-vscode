@@ -755,11 +755,10 @@ function getHtml(): string {
           content.classList.toggle('collapsed');
         });
       } else {
-        if (msg.content) {
-          const c = document.createElement('div');
-          c.textContent = msg.content;
-          el.appendChild(c);
-        }
+        const c = document.createElement('div');
+        c.className = 'content';
+        c.textContent = msg.content || '';
+        el.appendChild(c);
       }
 
       chatMessages.appendChild(el);
@@ -849,8 +848,13 @@ function getHtml(): string {
             currentAssistantEl = appendMsg({ role: 'assistant', content: '', id: 's' + Date.now() });
             currentAssistantEl.classList.add('streaming-cursor');
           }
-          const c = currentAssistantEl.querySelector('div');
-          if (c) c.textContent += msg.content;
+          let textDiv = currentAssistantEl.querySelector('.content');
+          if (!textDiv) {
+            textDiv = document.createElement('div');
+            textDiv.className = 'content';
+            currentAssistantEl.appendChild(textDiv);
+          }
+          textDiv.textContent += msg.content;
           chatMessages.scrollTop = chatMessages.scrollHeight;
           break;
 
