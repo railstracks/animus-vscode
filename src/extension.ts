@@ -182,7 +182,14 @@ function connectWs(): void {
       postToView({ type: 'ws_open' });
     },
     onMessage: (data) => {
-      // Route WS events to the webview
+      // Only forward events relevant to the active session or connection events
+      // Filter out observation stream events (subscribed automatically on /ws/chat)
+      if (data.type === 'observation') return;
+      // For session-scoped events, check session_id matches
+      // Allow events with no session_id (connection-level) and context events (which set the session)
+      if (data.session_id && activeSessionId && data.type !== 'context' && data.session_id !== activeSessionId) {
+        return;
+      }
       if (data.type === 'context' && data.session_id) {
         activeSessionId = data.session_id;
       }
@@ -215,6 +222,7 @@ async function handleWebviewMessage(msg: any): Promise<void> {
 
       if (!sessionId || sessionId === 'new') {
         // New session — send without session_id, tag as vscode
+        activeSessionId = ''; // Reset — will be set by context event
         client.sendWsMessage({
           type: 'message',
           content,
@@ -244,6 +252,7 @@ async function handleWebviewMessage(msg: any): Promise<void> {
       break;
 
     case 'load_history':
+      activeSessionId = msg.sessionId;
       await loadHistory(msg.sessionId);
       break;
 
