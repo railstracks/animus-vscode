@@ -211,8 +211,8 @@ async function handleWebviewMessage(msg: any): Promise<void> {
 
     case 'send_message': {
       if (!client) return;
-      const { content, agentId, provider, modelId, sessionId } = msg;
-      console.log('[Animus] send_message:', { agentId, provider, modelId, sessionId, contentLen: content.length });
+      const { content, agentId, provider, modelId, sessionId, reasoningEnabled, reasoningEffort: reasoningEffortVal } = msg;
+      console.log('[Animus] send_message:', { agentId, provider, modelId, sessionId, reasoningEnabled, reasoningEffort: reasoningEffortVal, contentLen: content.length });
 
       if (!sessionId || sessionId === 'new') {
         // New session — send without session_id, tag as vscode
@@ -224,6 +224,8 @@ async function handleWebviewMessage(msg: any): Promise<void> {
           ...(agentId ? { agent_id: agentId } : {}),
           ...(provider ? { provider } : {}),
           ...(modelId ? { model_id: modelId } : {}),
+          reasoning_enabled: !!reasoningEnabled,
+          reasoning_effort: reasoningEffortVal || 'high',
         });
       } else {
         client.sendWsMessage({
@@ -232,6 +234,8 @@ async function handleWebviewMessage(msg: any): Promise<void> {
           content,
           ...(provider ? { provider } : {}),
           ...(modelId ? { model_id: modelId } : {}),
+          reasoning_enabled: !!reasoningEnabled,
+          reasoning_effort: reasoningEffortVal || 'high',
         });
       }
       break;
@@ -387,6 +391,18 @@ function getHtml(): string {
     #send-btn:disabled {
       opacity: 0.5;
       cursor: default;
+    }
+    .form-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .form-row .field-label {
+      margin: 0;
+      min-width: 60px;
+    }
+    #reasoning-toggle {
+      margin: 0;
     }
 
     /* ---- Session List ---- */
@@ -560,9 +576,20 @@ function getHtml(): string {
       <select id="agent-select"></select>
       <label class="field-label" for="provider-select">Provider</label>
       <select id="provider-select"></select>
-      <label class="field-label" for="model-select">Model</label>
-      <select id="model-select"></select>
-      <textarea id="message-input" placeholder="Start a new conversation..." rows="3"></textarea>
+     <label class="field-label" for="model-select">Model</label>
+     <select id="model-select"></select>
+     <div class="form-row" style="display:flex;align-items:center;gap:8px;">
+       <label class="field-label" for="reasoning-toggle" style="margin:0;">Reasoning</label>
+       <input type="checkbox" id="reasoning-toggle" />
+       <select id="reasoning-effort" style="flex:1;">
+         <option value="low">low</option>
+         <option value="medium">medium</option>
+         <option value="high" selected>high</option>
+         <option value="xhigh">xhigh</option>
+         <option value="max">max</option>
+       </select>
+     </div>
+     <textarea id="message-input" placeholder="Start a new conversation..." rows="3"></textarea>
       <button id="send-btn">Send</button>
     </div>
 
@@ -597,6 +624,7 @@ function getHtml(): string {
     let currentAssistantEl = null;
     let currentThinkingEl = null;
     let modelsCache = {};  // providerId -> string[]
+    let agentsData = [];   // full agent objects from init
 
     // ---- Elements ----
     const mainView = document.getElementById('main-view');
@@ -604,6 +632,8 @@ function getHtml(): string {
     const agentSelect = document.getElementById('agent-select');
     const providerSelect = document.getElementById('provider-select');
     const modelSelect = document.getElementById('model-select');
+    const reasoningToggle = document.getElementById('reasoning-toggle');
+    const reasoningEffort = document.getElementById('reasoning-effort');
     const messageInput = document.getElementById('message-input');
     const sendBtn = document.getElementById('send-btn');
     const sessionList = document.getElementById('session-list-container');
@@ -622,12 +652,14 @@ function getHtml(): string {
       const agentId = agentSelect.value || undefined;
       const provider = providerSelect.value || undefined;
       const modelId = modelSelect.value || undefined;
+      const reasoningOn = reasoningToggle.checked;
+      const reasoningLevel = reasoningEffort.value;
       // Switch to chat view with new session
       openChat('new', 'New Session');
       // Add user message
       appendMsg({ role: 'user', content, id: 'u' + Date.now() });
       // Send via WS
-      vscode.postMessage({ type: 'send_message', content, agentId, provider, modelId, sessionId: 'new' });
+      vscode.postMessage({ type: 'send_message', content, agentId, provider, modelId, sessionId: 'new', reasoningEnabled: reasoningOn, reasoningEffort: reasoningLevel });
       setStreaming(true);
       messageInput.value = '';
     });
@@ -637,6 +669,11 @@ function getHtml(): string {
     });
 
     // ---- Provider/model cascading ----
+    agentSelect.addEventListener('change', () => {
+      const selected = agentsData.find(a => a.id === agentSelect.value);
+      applyAgentDefaults(selected);
+    });
+
     providerSelect.addEventListener('change', () => {
       const pid = providerSelect.value;
       modelSelect.innerHTML = '';
@@ -657,7 +694,36 @@ function getHtml(): string {
         modelSelect.appendChild(opt);
       }
       if (current && models.includes(current)) modelSelect.value = current;
+      // Apply pending model selection from agent defaults
+      if (pendingModelSelect) {
+        if (models.includes(pendingModelSelect)) {
+          modelSelect.value = pendingModelSelect;
+        }
+        pendingModelSelect = '';
+      }
     }
+
+    function applyAgentDefaults(agent) {
+      if (!agent) return;
+      // Set provider from agent config
+      if (agent.model && agent.model.provider) {
+        providerSelect.value = agent.model.provider;
+        vscode.postMessage({ type: 'load_models', providerId: agent.model.provider });
+      }
+      // Set model from agent config (applied after models load — store for later)
+      if (agent.model && agent.model.model_id) {
+        pendingModelSelect = agent.model.model_id;
+      }
+      // Set reasoning from agent config
+      if (agent.reasoning) {
+        reasoningToggle.checked = agent.reasoning.enabled;
+        if (agent.reasoning.effort) {
+          reasoningEffort.value = agent.reasoning.effort;
+        }
+      }
+    }
+
+    let pendingModelSelect = '';  // model to select after models load
 
     // ---- Back button ----
     backBtn.addEventListener('click', () => {
@@ -787,9 +853,11 @@ function getHtml(): string {
 
       switch (msg.type) {
         case 'init':
+          // Store full agent data for defaults lookup
+          agentsData = msg.agents || [];
           // Populate agents
           agentSelect.innerHTML = '';
-          for (const a of (msg.agents || [])) {
+          for (const a of agentsData) {
             const opt = document.createElement('option');
             opt.value = a.id;
             opt.textContent = a.name || a.id;
@@ -803,12 +871,17 @@ function getHtml(): string {
             opt.textContent = p.provider_id;
             providerSelect.appendChild(opt);
           }
-          if (msg.defaultProvider) providerSelect.value = msg.defaultProvider;
-          // Clear model select until provider is picked
-          modelSelect.innerHTML = '';
-          // Auto-load models for default provider
-          if (providerSelect.value) {
-            vscode.postMessage({ type: 'load_models', providerId: providerSelect.value });
+          // Apply first agent's defaults
+          if (agentsData.length > 0) {
+            applyAgentDefaults(agentsData[0]);
+          } else {
+            if (msg.defaultProvider) providerSelect.value = msg.defaultProvider;
+            // Clear model select until provider is picked
+            modelSelect.innerHTML = '';
+            // Auto-load models for default provider
+            if (providerSelect.value) {
+              vscode.postMessage({ type: 'load_models', providerId: providerSelect.value });
+            }
           }
           break;
 

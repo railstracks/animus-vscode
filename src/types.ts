@@ -8,6 +8,10 @@ export interface Agent {
     provider?: string;
     model_id?: string;
   };
+  reasoning?: {
+    enabled: boolean;
+    effort: string;
+  };
   avatar?: string;
 }
 
