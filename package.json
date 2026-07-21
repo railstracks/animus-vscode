@@ -2,7 +2,7 @@
   "name": "animus",
   "displayName": "Animus",
   "description": "Persistent AI agents in your IDE — powered by Animus",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "publisher": "artificers",
   "license": "Apache-2.0",
   "repository": {
